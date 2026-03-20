@@ -1,11 +1,4 @@
-// Vercel Edge Function — api/simulate.js
-export const config = { runtime: 'edge' };
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+// Vercel Serverless Function (Node.js) — api/simulate.js
 
 const AREA_PROMPTS = {
   brzuch:    'slim the belly and stomach area naturally',
@@ -15,29 +8,32 @@ const AREA_PROMPTS = {
   podbrodek: 'reduce the double chin naturally',
 };
 
-export default async function handler(req) {
+function setCORS(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+module.exports = async function handler(req, res) {
+  setCORS(res);
+
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+    return res.status(204).end();
   }
+
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const FAL_KEY = process.env.FAL_API_KEY;
   if (!FAL_KEY) {
-    return new Response(JSON.stringify({ error: 'API key not configured' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-    });
+    return res.status(500).json({ error: 'API key not configured' });
   }
 
-  let body;
-  try { body = await req.json(); }
-  catch { return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }); }
+  const { imageBase64, area = 'brzuch', reduction = 20 } = req.body || {};
 
-  const { imageBase64, area = 'brzuch', reduction = 20 } = body;
   if (!imageBase64) {
-    return new Response(JSON.stringify({ error: 'No image provided' }), { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+    return res.status(400).json({ error: 'No image provided' });
   }
 
   const areaPrompt = AREA_PROMPTS[area] || AREA_PROMPTS.brzuch;
@@ -47,7 +43,10 @@ export default async function handler(req) {
   try {
     const falRes = await fetch('https://fal.run/fal-ai/flux-kontext/image-to-image', {
       method: 'POST',
-      headers: { 'Authorization': `Key ${FAL_KEY}`, 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Key ${FAL_KEY}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
         prompt,
         image_url: imageBase64,
@@ -59,19 +58,19 @@ export default async function handler(req) {
 
     if (!falRes.ok) {
       const err = await falRes.text();
-      return new Response(JSON.stringify({ error: 'fal.ai error', detail: err }), { status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+      return res.status(502).json({ error: 'fal.ai error', detail: err });
     }
 
     const result = await falRes.json();
     const outputUrl = result?.images?.[0]?.url || result?.image?.url || null;
 
     if (!outputUrl) {
-      return new Response(JSON.stringify({ error: 'No output image', raw: result }), { status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+      return res.status(502).json({ error: 'No output image', raw: result });
     }
 
-    return new Response(JSON.stringify({ url: outputUrl }), { status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+    return res.status(200).json({ url: outputUrl });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+    return res.status(500).json({ error: err.message });
   }
-}
+};
